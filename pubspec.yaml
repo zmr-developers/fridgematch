@@ -1,0 +1,29 @@
+name: fridgematch
+description: FridgeMatch - Your personal chef that knows your fridge, your health, and your culture.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_mobile_ads: ^5.1.0
+  sqflite: ^2.3.2
+  fl_chart: ^0.66.2
+  path: ^1.8.3
+  intl: ^0.19.0
+  shared_preferences: ^2.2.2
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/meals.json
+    - assets/ingredients.json
