@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers/localization_helper.dart';
@@ -223,7 +222,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           child: Row(children: [
             Text(
               '${_selected.length} ${LocalizationHelper.t('have')}',
-              style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold, fontSize: 13),
+              style: TextStyle(
+                color: scheme.primary,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
             ),
             const Spacer(),
             TextButton(
@@ -301,21 +304,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           }).toList(),
         ),
       ),
-      SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-          child: SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _selected.isEmpty ? null : _findMeals,
-              icon: const Icon(Icons.search),
-              label: Text(
-                LocalizationHelper.t('find_meals'),
-                style: const TextStyle(fontSize: 15),
-              ),
-              style: FilledButton.styleFrom(padding: const EdgeInsets.all(13)),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _selected.isEmpty ? null : _findMeals,
+            icon: const Icon(Icons.search),
+            label: Text(
+              LocalizationHelper.t('find_meals'),
+              style: const TextStyle(fontSize: 15),
             ),
+            style: FilledButton.styleFrom(padding: const EdgeInsets.all(13)),
           ),
         ),
       ),
@@ -474,11 +474,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                Text(LocalizationHelper.t('health_benefits'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(LocalizationHelper.t('health_benefits'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 4),
                 Text(LocalizationHelper.healthBenefit(meal)),
                 const Divider(height: 24),
-                Text(LocalizationHelper.t('ingredients'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(LocalizationHelper.t('ingredients'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 8),
                 ...req.map((r) {
                   final have = _selected.contains(r);
@@ -520,9 +522,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   );
                 }),
                 const Divider(height: 24),
-                Text(LocalizationHelper.t('recipe'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(LocalizationHelper.t('recipe'),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 8),
-                Text(LocalizationHelper.recipeSteps(meal), style: const TextStyle(fontSize: 14, height: 1.6)),
+                Text(LocalizationHelper.recipeSteps(meal),
+                    style: const TextStyle(fontSize: 14, height: 1.6)),
               ],
             ),
           );
@@ -579,8 +583,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           margin: const EdgeInsets.only(bottom: 10),
           child: ListTile(
             leading: Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 32)),
-            title: Text(LocalizationHelper.mealName(meal), style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  •  ${meal['calories']} kcal'),
+            title: Text(LocalizationHelper.mealName(meal),
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text(
+                '${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  •  ${meal['calories']} kcal'),
             trailing: IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
               onPressed: () async {
@@ -633,17 +639,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           Tab(icon: const Icon(Icons.favorite), text: LocalizationHelper.t('favorites')),
         ]),
       ),
-      body: SafeArea(
-        child: Column(children: [
-          Expanded(child: TabBarView(controller: _tabController, children: [
+      body: Column(children: [
+        Expanded(
+          child: TabBarView(controller: _tabController, children: [
             _buildIngredientTab(),
             _buildResultsTab(),
             _buildShoppingTab(),
             _buildFavoritesTab(),
-          ])),
-          if (_banner != null) SizedBox(height: 50, child: AdWidget(ad: _banner!)),
-        ]),
-      ),
+          ]),
+        ),
+        if (_banner != null)
+          SafeArea(
+            top: false,
+            child: SizedBox(height: 50, child: AdWidget(ad: _banner!)),
+          ),
+      ]),
     );
   }
 }
