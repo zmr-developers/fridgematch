@@ -12,6 +12,11 @@ void main() async {
   
   // Initialize database FIRST - this seeds meals and ingredients
   await DatabaseHelper.database;
+
+  final meals = await DatabaseHelper.getMeals();
+final ings = await DatabaseHelper.getIngredients();
+debugPrint('MEALS COUNT: ${meals.length}');
+debugPrint('INGREDIENTS COUNT: ${ings.length}');
   
   final prefs = await SharedPreferences.getInstance();
   final bool seenOnboarding = prefs.getBool('seen_onboarding') ?? false;
