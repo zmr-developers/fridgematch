@@ -20,7 +20,7 @@ class DatabaseHelper {
   static Future<void> _onCreate(Database db, int version) async {
     await db.execute('CREATE TABLE meals(id INTEGER PRIMARY KEY, data TEXT)');
     await db.execute('CREATE TABLE ingredients(id TEXT PRIMARY KEY, data TEXT)');
-    await db.execute('CREATE TABLE favorites(id INTEGER PRIMARY KEY, meal_id INTEGER)');
+    await db.execute('CREATE TABLE favorites(id INTEGER PRIMARY KEY AUTOINCREMENT, meal_id INTEGER UNIQUE)');
     await db.execute('CREATE TABLE shopping(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, bought INTEGER DEFAULT 0)');
     await _seedData(db);
   }
@@ -28,17 +28,23 @@ class DatabaseHelper {
   static Future<void> _seedData(Database db) async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool('db_seeded') == true) return;
-    final mealsJson = await rootBundle.loadString('assets/meals.json');
-    final ingredientsJson = await rootBundle.loadString('assets/ingredients.json');
-    final List meals = jsonDecode(mealsJson);
-    final List ingredients = jsonDecode(ingredientsJson);
-    for (final m in meals) {
-      await db.insert('meals', {'id': m['id'], 'data': jsonEncode(m)}, conflictAlgorithm: ConflictAlgorithm.replace);
+    try {
+      final mealsJson = await rootBundle.loadString('assets/meals.json');
+      final ingredientsJson = await rootBundle.loadString('assets/ingredients.json');
+      final List meals = jsonDecode(mealsJson);
+      final List ingredients = jsonDecode(ingredientsJson);
+      for (final m in meals) {
+        await db.insert('meals', {'id': m['id'], 'data': jsonEncode(m)},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      for (final i in ingredients) {
+        await db.insert('ingredients', {'id': i['id'].toString(), 'data': jsonEncode(i)},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await prefs.setBool('db_seeded', true);
+    } catch (e) {
+      // JSON files not found yet — app will work with empty database
     }
-    for (final i in ingredients) {
-      await db.insert('ingredients', {'id': i['id'], 'data': jsonEncode(i)}, conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-    await prefs.setBool('db_seeded', true);
   }
 
   static Future<List<Map<String, dynamic>>> getMeals() async {
@@ -57,7 +63,8 @@ class DatabaseHelper {
     final db = await database;
     final existing = await db.query('favorites', where: 'meal_id = ?', whereArgs: [mealId]);
     if (existing.isEmpty) {
-      await db.insert('favorites', {'meal_id': mealId});
+      await db.insert('favorites', {'meal_id': mealId},
+          conflictAlgorithm: ConflictAlgorithm.ignore);
     } else {
       await db.delete('favorites', where: 'meal_id = ?', whereArgs: [mealId]);
     }
@@ -80,21 +87,33 @@ class DatabaseHelper {
 
   static Future<void> addShoppingItem(String name) async {
     final db = await database;
-    await db.insert('shopping', {'name': name, 'bought': 0});
+    await db.insert('shopping', {'name': name, 'bought': 0},
+        conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   static Future<List<Map<String, dynamic>>> getShoppingItems() async {
     final db = await database;
-    return db.query('shopping');
+    return db.query('shopping', orderBy: 'id ASC');
   }
 
   static Future<void> toggleShoppingBought(int id, int current) async {
     final db = await database;
-    await db.update('shopping', {'bought': current == 0 ? 1 : 0}, where: 'id = ?', whereArgs: [id]);
+    await db.update('shopping', {'bought': current == 0 ? 1 : 0},
+        where: 'id = ?', whereArgs: [id]);
   }
 
   static Future<void> deleteShoppingItem(int id) async {
     final db = await database;
     await db.delete('shopping', where: 'id = ?', whereArgs: [id]);
+  }
+
+  static Future<void> clearShoppingList() async {
+    final db = await database;
+    await db.delete('shopping');
+  }
+
+  static Future<void> clearFavorites() async {
+    final db = await database;
+    await db.delete('favorites');
   }
 }
