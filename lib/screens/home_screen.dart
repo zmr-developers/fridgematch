@@ -28,11 +28,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<Map<String, dynamic>> _shopping = [];
   List<Map<String, dynamic>> _favMeals = [];
   bool _loading = true;
-  Map<String, bool> _profile = {'pregnant': false, 'diabetic': false, 'heart': false, 'athlete': false, 'weight_loss': false};
-  Map<String, bool> _dietary = {'halal': false, 'vegetarian': false, 'vegan': false, 'gluten_free': false};
+  Map<String, bool> _profile = {
+    'pregnant': false,
+    'diabetic': false,
+    'heart': false,
+    'athlete': false,
+    'weight_loss': false,
+  };
+  Map<String, bool> _dietary = {
+    'halal': false,
+    'vegetarian': false,
+    'vegan': false,
+    'gluten_free': false,
+  };
 
   static const _cats = ['vegetables', 'fruits', 'proteins', 'grains', 'dairy', 'condiments', 'spices', 'other'];
-  static const _catEmojis = {'vegetables': '🥦', 'fruits': '🍎', 'proteins': '🥩', 'grains': '🌾', 'dairy': '🥛', 'condiments': '🫙', 'spices': '🌶️', 'other': '📦'};
+  static const _catEmojis = {
+    'vegetables': '🥦',
+    'fruits': '🍎',
+    'proteins': '🥩',
+    'grains': '🌾',
+    'dairy': '🥛',
+    'condiments': '🫙',
+    'spices': '🌶️',
+    'other': '📦',
+  };
 
   @override
   void initState() {
@@ -142,7 +162,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         return true;
       }).toList();
     }
-    setState(() { _results = results; _tab = 1; _tabController.animateTo(1); });
+    setState(() {
+      _results = results;
+      _tab = 1;
+      _tabController.animateTo(1);
+    });
   }
 
   Future<void> _addToShopping(Map<String, dynamic> meal) async {
@@ -156,7 +180,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       await DatabaseHelper.addShoppingItem(LocalizationHelper.ingredientName(ing));
     }
     _shopping = await DatabaseHelper.getShoppingItems();
-    setState(() { _tab = 2; _tabController.animateTo(2); });
+    setState(() {
+      _tab = 2;
+      _tabController.animateTo(2);
+    });
   }
 
   Future<void> _toggleFavorite(int mealId) async {
@@ -176,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
     return Column(children: [
       Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
         child: TextField(
           controller: _search,
           onChanged: _filterIngredients,
@@ -185,16 +212,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             prefixIcon: const Icon(Icons.search),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             filled: true,
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
           ),
         ),
       ),
       if (_selected.isNotEmpty)
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           child: Row(children: [
-            Text('${_selected.length} ${LocalizationHelper.t('have')}', style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold)),
+            Text(
+              '${_selected.length} ${LocalizationHelper.t('have')}',
+              style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold, fontSize: 13),
+            ),
             const Spacer(),
-            TextButton(onPressed: () => setState(() => _selected.clear()), child: Text(LocalizationHelper.t('clear_all'))),
+            TextButton(
+              onPressed: () => setState(() => _selected.clear()),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+              child: Text(LocalizationHelper.t('clear_all'), style: const TextStyle(fontSize: 13)),
+            ),
           ]),
         ),
       Expanded(
@@ -204,11 +240,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             if (items.isEmpty) return const SizedBox.shrink();
             return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
                 child: Row(children: [
-                  Text(_catEmojis[cat] ?? '📦', style: const TextStyle(fontSize: 20)),
+                  Text(_catEmojis[cat] ?? '📦', style: const TextStyle(fontSize: 18)),
                   const SizedBox(width: 8),
-                  Text(LocalizationHelper.t(cat), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text(
+                    LocalizationHelper.t(cat),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
                 ]),
               ),
               GridView.builder(
@@ -217,7 +256,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
-                  childAspectRatio: 1.1,
+                  childAspectRatio: 1.0,
                   crossAxisSpacing: 8,
                   mainAxisSpacing: 8,
                 ),
@@ -227,24 +266,32 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   final id = ing['id'].toString();
                   final sel = _selected.contains(id);
                   return GestureDetector(
-                    onTap: () => setState(() { if (sel) _selected.remove(id); else _selected.add(id); }),
+                    onTap: () => setState(() {
+                      if (sel) _selected.remove(id); else _selected.add(id);
+                    }),
                     child: Container(
                       decoration: BoxDecoration(
                         color: sel ? scheme.primaryContainer : scheme.surface,
-                        border: Border.all(color: sel ? scheme.primary : Colors.grey.shade300, width: sel ? 2 : 1),
+                        border: Border.all(
+                          color: sel ? scheme.primary : Colors.grey.shade300,
+                          width: sel ? 2 : 1,
+                        ),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Text(ing['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 28)),
-                        const SizedBox(height: 4),
+                        Text(ing['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 26)),
+                        const SizedBox(height: 3),
                         Text(
                           LocalizationHelper.ingredientName(ing),
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 11, fontWeight: sel ? FontWeight.bold : FontWeight.normal),
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                          ),
                         ),
-                        if (sel) Icon(Icons.check_circle, size: 14, color: scheme.primary),
+                        if (sel) Icon(Icons.check_circle, size: 12, color: scheme.primary),
                       ]),
                     ),
                   );
@@ -254,15 +301,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           }).toList(),
         ),
       ),
-      Padding(
-        padding: const EdgeInsets.all(12),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _selected.isEmpty ? null : _findMeals,
-            icon: const Icon(Icons.search),
-            label: Text(LocalizationHelper.t('find_meals'), style: const TextStyle(fontSize: 16)),
-            style: FilledButton.styleFrom(padding: const EdgeInsets.all(16)),
+      SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _selected.isEmpty ? null : _findMeals,
+              icon: const Icon(Icons.search),
+              label: Text(
+                LocalizationHelper.t('find_meals'),
+                style: const TextStyle(fontSize: 15),
+              ),
+              style: FilledButton.styleFrom(padding: const EdgeInsets.all(13)),
+            ),
           ),
         ),
       ),
@@ -271,7 +324,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _buildResultsTab() {
     final scheme = Theme.of(context).colorScheme;
-    if (_results.isEmpty) return Center(child: Text(LocalizationHelper.t('no_results'), style: const TextStyle(fontSize: 16)));
+    if (_results.isEmpty) return Center(
+      child: Text(LocalizationHelper.t('no_results'), style: const TextStyle(fontSize: 16)),
+    );
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: _results.length,
@@ -285,7 +340,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             : warningsRaw is String && warningsRaw.isNotEmpty
                 ? (jsonDecode(warningsRaw) as Map? ?? {})
                 : <String, dynamic>{};
-        final hasWarn = (_profile['pregnant'] == true && warnings['pregnant'] == true) ||
+        final hasWarn =
+            (_profile['pregnant'] == true && warnings['pregnant'] == true) ||
             (_profile['diabetic'] == true && warnings['diabetic'] == true) ||
             (_profile['heart'] == true && warnings['heart'] == true);
         return Card(
@@ -298,14 +354,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 32)),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(LocalizationHelper.mealName(meal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text(
+                    LocalizationHelper.mealName(meal),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                   Text(
                     '${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  •  ${meal['calories']} ${LocalizationHelper.t('calories')}',
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                   ),
                 ])),
                 IconButton(
-                  icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, color: isFav ? Colors.red : null),
+                  icon: Icon(
+                    isFav ? Icons.favorite : Icons.favorite_border,
+                    color: isFav ? Colors.red : null,
+                  ),
                   onPressed: () => _toggleFavorite(meal['id'] as int),
                 ),
               ]),
@@ -318,13 +380,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const SizedBox(height: 4),
               Text(
                 '${LocalizationHelper.t('match')}: $pct% (${meal['have']}/${meal['total']})',
-                style: TextStyle(color: pct >= 80 ? Colors.green : Colors.orange, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: pct >= 80 ? Colors.green : Colors.orange,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               if (hasWarn) ...[const SizedBox(height: 6), _buildWarning(warnings)],
               const SizedBox(height: 8),
               Row(children: [
                 Expanded(child: OutlinedButton(
-                  onPressed: () { _showMealDetail(meal); _showInterstitialIfNeeded(); },
+                  onPressed: () {
+                    _showMealDetail(meal);
+                    _showInterstitialIfNeeded();
+                  },
                   child: Text(LocalizationHelper.t('view_detail')),
                 )),
                 const SizedBox(width: 8),
@@ -342,9 +410,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _buildWarning(Map warnings) {
     final msgs = <String>[];
-    if (_profile['pregnant'] == true && warnings['pregnant'] == true) msgs.add(LocalizationHelper.t('pregnant_warning'));
-    if (_profile['diabetic'] == true && warnings['diabetic'] == true) msgs.add(LocalizationHelper.t('diabetic_warning'));
-    if (_profile['heart'] == true && warnings['heart'] == true) msgs.add(LocalizationHelper.t('heart_warning'));
+    if (_profile['pregnant'] == true && warnings['pregnant'] == true) {
+      msgs.add(LocalizationHelper.t('pregnant_warning'));
+    }
+    if (_profile['diabetic'] == true && warnings['diabetic'] == true) {
+      msgs.add(LocalizationHelper.t('diabetic_warning'));
+    }
+    if (_profile['heart'] == true && warnings['heart'] == true) {
+      msgs.add(LocalizationHelper.t('heart_warning'));
+    }
     if (msgs.isEmpty) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.all(8),
@@ -378,9 +452,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 Row(children: [
                   Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 48)),
                   const SizedBox(width: 16),
-                  Expanded(child: Text(LocalizationHelper.mealName(meal), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22))),
+                  Expanded(child: Text(
+                    LocalizationHelper.mealName(meal),
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+                  )),
                   IconButton(
-                    icon: Icon(isFav ? Icons.favorite : Icons.favorite_border, color: isFav ? Colors.red : null, size: 32),
+                    icon: Icon(
+                      isFav ? Icons.favorite : Icons.favorite_border,
+                      color: isFav ? Colors.red : null,
+                      size: 32,
+                    ),
                     onPressed: () async {
                       await _toggleFavorite(meal['id'] as int);
                       setS(() { isFav = _favMeals.any((f) => f['id'] == meal['id']); });
@@ -388,7 +469,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                 ]),
                 const SizedBox(height: 8),
-                Text('${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  |  ${meal['calories']} kcal', style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold)),
+                Text(
+                  '${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  |  ${meal['calories']} kcal',
+                  style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold),
+                ),
                 const SizedBox(height: 8),
                 Text(LocalizationHelper.t('health_benefits'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 4),
@@ -414,11 +498,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       Text(ing['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 20)),
                       const SizedBox(width: 8),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(LocalizationHelper.ingredientName(ing), style: TextStyle(fontWeight: FontWeight.bold, color: have ? Colors.green : Colors.red)),
+                        Text(
+                          LocalizationHelper.ingredientName(ing),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: have ? Colors.green : Colors.red,
+                          ),
+                        ),
                         if (!have && alts.isNotEmpty)
-                          Text('${LocalizationHelper.t('alternatives')}: ${alts.join(', ')}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                          Text(
+                            '${LocalizationHelper.t('alternatives')}: ${alts.join(', ')}',
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
                       ])),
-                      Icon(have ? Icons.check_circle : Icons.cancel, color: have ? Colors.green : Colors.red, size: 20),
+                      Icon(
+                        have ? Icons.check_circle : Icons.cancel,
+                        color: have ? Colors.green : Colors.red,
+                        size: 20,
+                      ),
                     ]),
                   );
                 }),
@@ -451,7 +548,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 setState(() {});
               },
             ),
-            title: Text(item['name'] ?? '', style: TextStyle(decoration: item['bought'] == 1 ? TextDecoration.lineThrough : null)),
+            title: Text(
+              item['name'] ?? '',
+              style: TextStyle(
+                decoration: item['bought'] == 1 ? TextDecoration.lineThrough : null,
+              ),
+            ),
             trailing: IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
               onPressed: () async {
@@ -509,7 +611,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return Scaffold(
       appBar: AppBar(
         backgroundColor: scheme.primaryContainer,
-        title: Text(LocalizationHelper.t('app_title'), style: TextStyle(fontWeight: FontWeight.bold, color: scheme.primary)),
+        title: Text(
+          LocalizationHelper.t('app_title'),
+          style: TextStyle(fontWeight: FontWeight.bold, color: scheme.primary),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -528,15 +633,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           Tab(icon: const Icon(Icons.favorite), text: LocalizationHelper.t('favorites')),
         ]),
       ),
-      body: Column(children: [
-        Expanded(child: TabBarView(controller: _tabController, children: [
-          _buildIngredientTab(),
-          _buildResultsTab(),
-          _buildShoppingTab(),
-          _buildFavoritesTab(),
-        ])),
-        if (_banner != null) SizedBox(height: 50, child: AdWidget(ad: _banner!)),
-      ]),
+      body: SafeArea(
+        child: Column(children: [
+          Expanded(child: TabBarView(controller: _tabController, children: [
+            _buildIngredientTab(),
+            _buildResultsTab(),
+            _buildShoppingTab(),
+            _buildFavoritesTab(),
+          ])),
+          if (_banner != null) SizedBox(height: 50, child: AdWidget(ad: _banner!)),
+        ]),
+      ),
     );
   }
 }
