@@ -14,7 +14,7 @@ class DatabaseHelper {
 
   static Future<Database> _initDb() async {
     final path = join(await getDatabasesPath(), 'fridgematch.db');
-    return openDatabase(path, version: 1, onCreate: _onCreate);
+    return openDatabase(path, version: 2, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
   static Future<void> _onCreate(Database db, int version) async {
@@ -24,6 +24,16 @@ class DatabaseHelper {
     await db.execute('CREATE TABLE shopping(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, bought INTEGER DEFAULT 0)');
     await _seedData(db);
   }
+
+ static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  await db.execute('DROP TABLE IF EXISTS meals');
+  await db.execute('DROP TABLE IF EXISTS ingredients');
+  await db.execute('CREATE TABLE meals(id INTEGER PRIMARY KEY, data TEXT)');
+  await db.execute('CREATE TABLE ingredients(id TEXT PRIMARY KEY, data TEXT)');
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('db_seeded', false);
+  await _seedData(db);
+}
 
   static Future<void> _seedData(Database db) async {
     final prefs = await SharedPreferences.getInstance();
