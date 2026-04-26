@@ -14,30 +14,34 @@ class DatabaseHelper {
 
   static Future<Database> _initDb() async {
     final path = join(await getDatabasesPath(), 'fridgematch.db');
-    return openDatabase(path, version: 2, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    return openDatabase(
+      path,
+      version: 3,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
   }
 
   static Future<void> _onCreate(Database db, int version) async {
-    await db.execute('CREATE TABLE meals(id INTEGER PRIMARY KEY, data TEXT)');
-    await db.execute('CREATE TABLE ingredients(id TEXT PRIMARY KEY, data TEXT)');
-    await db.execute('CREATE TABLE favorites(id INTEGER PRIMARY KEY AUTOINCREMENT, meal_id INTEGER UNIQUE)');
-    await db.execute('CREATE TABLE shopping(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, bought INTEGER DEFAULT 0)');
+    await _createTables(db);
     await _seedData(db);
   }
 
- static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-  await db.execute('DROP TABLE IF EXISTS meals');
-  await db.execute('DROP TABLE IF EXISTS ingredients');
-  await db.execute('CREATE TABLE meals(id INTEGER PRIMARY KEY, data TEXT)');
-  await db.execute('CREATE TABLE ingredients(id TEXT PRIMARY KEY, data TEXT)');
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setBool('db_seeded', false);
-  await _seedData(db);
-}
+  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    await db.execute('DROP TABLE IF EXISTS meals');
+    await db.execute('DROP TABLE IF EXISTS ingredients');
+    await _createTables(db);
+    await _seedData(db);
+  }
+
+  static Future<void> _createTables(Database db) async {
+    await db.execute('CREATE TABLE IF NOT EXISTS meals(id INTEGER PRIMARY KEY, data TEXT)');
+    await db.execute('CREATE TABLE IF NOT EXISTS ingredients(id TEXT PRIMARY KEY, data TEXT)');
+    await db.execute('CREATE TABLE IF NOT EXISTS favorites(id INTEGER PRIMARY KEY AUTOINCREMENT, meal_id INTEGER UNIQUE)');
+    await db.execute('CREATE TABLE IF NOT EXISTS shopping(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, bought INTEGER DEFAULT 0)');
+  }
 
   static Future<void> _seedData(Database db) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool('db_seeded') == true) return;
     try {
       final mealsJson = await rootBundle.loadString('assets/meals.json');
       final ingredientsJson = await rootBundle.loadString('assets/ingredients.json');
@@ -51,9 +55,8 @@ class DatabaseHelper {
         await db.insert('ingredients', {'id': i['id'].toString(), 'data': jsonEncode(i)},
             conflictAlgorithm: ConflictAlgorithm.replace);
       }
-      await prefs.setBool('db_seeded', true);
     } catch (e) {
-      // JSON files not found yet — app will work with empty database
+      // JSON files not found
     }
   }
 
@@ -120,10 +123,5 @@ class DatabaseHelper {
   static Future<void> clearShoppingList() async {
     final db = await database;
     await db.delete('shopping');
-  }
-
-  static Future<void> clearFavorites() async {
-    final db = await database;
-    await db.delete('favorites');
   }
 }
