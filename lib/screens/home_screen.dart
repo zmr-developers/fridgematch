@@ -23,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
   List<Map<String, dynamic>> _meals = [];
   List<Map<String, dynamic>> _results = [];
+  List<Map<String, dynamic>> _baseResults = []; // stores unsorted original results
   List<Map<String, dynamic>> _shopping = [];
   List<Map<String, dynamic>> _favMeals = [];
   bool _loading = true;
@@ -92,8 +93,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _shopping = await DatabaseHelper.getShoppingItems();
     _filtered = List.from(_allIngredients);
 
-    // Extract unique cuisines for filter
-    final cuisines = _meals.map((m) => m['cuisine'] as String? ?? '').where((c) => c.isNotEmpty).toSet().toList();
+    final cuisines = _meals
+        .map((m) => m['cuisine'] as String? ?? '')
+        .where((c) => c.isNotEmpty)
+        .toSet()
+        .toList();
     cuisines.sort();
     _availableCuisines = cuisines;
 
@@ -128,31 +132,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void _findMeals() {
     _showInterstitialIfNeeded();
     List<Map<String, dynamic>> results = [];
+
     for (final meal in _meals) {
       final req = _parseIngredients(meal['required_ingredients']);
       if (req.isEmpty) continue;
       final have = req.where((r) => _selected.contains(r)).length;
       final pct = (have / req.length * 100).round();
       if (pct > 0) results.add({...meal, 'match_pct': pct, 'have': have, 'total': req.length});
-    }
-
-    // Sort
-    results.sort((a, b) {
-      if (_sortBy == 'calories') {
-        final ac = (a['calories'] ?? 999) is int ? a['calories'] as int : int.tryParse(a['calories'].toString()) ?? 999;
-        final bc = (b['calories'] ?? 999) is int ? b['calories'] as int : int.tryParse(b['calories'].toString()) ?? 999;
-        return ac.compareTo(bc);
-      }
-      return (b['match_pct'] as int).compareTo(a['match_pct'] as int);
-    });
-
-    // Weight loss override
-    if (_profile['weight_loss'] == true && _sortBy == 'match') {
-      results.sort((a, b) {
-        final ac = (a['calories'] ?? 999) is int ? a['calories'] as int : int.tryParse(a['calories'].toString()) ?? 999;
-        final bc = (b['calories'] ?? 999) is int ? b['calories'] as int : int.tryParse(b['calories'].toString()) ?? 999;
-        return ac.compareTo(bc);
-      });
     }
 
     // Dietary filter
@@ -171,16 +157,50 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }).toList();
     }
 
-    // Cuisine filter
-    if (_cuisineFilter != 'all') {
-      results = results.where((m) => m['cuisine'] == _cuisineFilter).toList();
-    }
+    // Store base results before cuisine/sort
+    _baseResults = List.from(results);
+
+    // Reset cuisine filter when doing new search
+    _cuisineFilter = 'all';
+
+    // Apply sort and cuisine
+    _applyFiltersToResults(baseResults: results);
 
     setState(() {
-      _results = results;
       _tab = 1;
       _tabController.animateTo(1);
     });
+  }
+
+  // ─── CORE FIX: Cuisine pushes matching meals to top ──────────
+  void _applyFiltersToResults({List<Map<String, dynamic>>? baseResults}) {
+    final source = baseResults ?? List.from(_baseResults);
+    if (source.isEmpty) return;
+
+    List<Map<String, dynamic>> sorted;
+
+    // Sort function based on _sortBy
+    int sortFn(Map a, Map b) {
+      if (_sortBy == 'calories' || _profile['weight_loss'] == true) {
+        final ac = (a['calories'] ?? 999) is int ? a['calories'] as int : int.tryParse(a['calories'].toString()) ?? 999;
+        final bc = (b['calories'] ?? 999) is int ? b['calories'] as int : int.tryParse(b['calories'].toString()) ?? 999;
+        return ac.compareTo(bc);
+      }
+      return (b['match_pct'] as int).compareTo(a['match_pct'] as int);
+    }
+
+    if (_cuisineFilter == 'all') {
+      sorted = List.from(source)..sort(sortFn);
+    } else {
+      // Split: matching cuisine on top, others below
+      final matching = source.where((m) => m['cuisine'] == _cuisineFilter).toList();
+      final others = source.where((m) => m['cuisine'] != _cuisineFilter).toList();
+      matching.sort(sortFn);
+      others.sort(sortFn);
+      sorted = [...matching, ...others];
+    }
+
+    setState(() => _results = sorted);
   }
 
   Future<void> _addMissingToShopping(Map<String, dynamic> meal) async {
@@ -366,7 +386,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget _buildResultsTab() {
     final scheme = Theme.of(context).colorScheme;
 
-    // Empty state before searching
     if (_results.isEmpty && _selected.isEmpty) {
       return Center(
         child: Padding(
@@ -384,7 +403,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       );
     }
 
-    // Empty after search
     if (_results.isEmpty) {
       return Center(
         child: Padding(
@@ -399,6 +417,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       );
     }
 
+    // Find where cuisine section ends for divider
+    final cuisineSplitIndex = _cuisineFilter != 'all'
+        ? _results.indexWhere((m) => m['cuisine'] != _cuisineFilter)
+        : -1;
+
     return Column(children: [
       // Sort + Cuisine filter bar
       SingleChildScrollView(
@@ -407,7 +430,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         child: Row(children: [
           // Sort toggle
           GestureDetector(
-            onTap: () => setState(() => _sortBy = _sortBy == 'match' ? 'calories' : 'match'),
+            onTap: () {
+              setState(() => _sortBy = _sortBy == 'match' ? 'calories' : 'match');
+              _applyFiltersToResults();
+            },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -428,29 +454,64 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
           ),
           const SizedBox(width: 8),
-          // Cuisine filter chips
           _cuisineChip(LocalizationHelper.t('all_cuisines'), 'all'),
           ..._availableCuisines.map((c) => _cuisineChip(c, c)),
         ]),
       ),
 
-      // Results count
+      // Results count + cuisine label
       Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            '${_results.length} meals found',
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        child: Row(children: [
+          Text(
+            '${_results.length} ${_results.length == 1 ? 'meal' : 'meals'}',
             style: TextStyle(fontSize: 12, color: scheme.primary, fontWeight: FontWeight.bold),
           ),
-        ),
+          if (_cuisineFilter != 'all') ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$_cuisineFilter first',
+                style: const TextStyle(fontSize: 11, color: Colors.white),
+              ),
+            ),
+          ],
+        ]),
       ),
 
       Expanded(
         child: ListView.builder(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-          itemCount: _results.length,
-          itemBuilder: (ctx, i) {
+          itemCount: _results.length + (cuisineSplitIndex > 0 ? 1 : 0),
+          itemBuilder: (ctx, rawIndex) {
+            // Inject divider between cuisine match and others
+            if (cuisineSplitIndex > 0 && rawIndex == cuisineSplitIndex) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(children: [
+                  const Expanded(child: Divider()),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(
+                      'Other cuisines',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                    ),
+                  ),
+                  const Expanded(child: Divider()),
+                ]),
+              );
+            }
+
+            // Adjust index after divider injection
+            final i = cuisineSplitIndex > 0 && rawIndex > cuisineSplitIndex
+                ? rawIndex - 1
+                : rawIndex;
+
             final meal = _results[i];
             final pct = meal['match_pct'] as int;
             final isFav = _favMeals.any((f) => f['id'] == meal['id']);
@@ -541,7 +602,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final scheme = Theme.of(context).colorScheme;
     final selected = _cuisineFilter == value;
     return GestureDetector(
-      onTap: () => setState(() => _cuisineFilter = value),
+      onTap: () {
+        setState(() => _cuisineFilter = value);
+        _applyFiltersToResults();
+      },
       child: Container(
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -633,7 +697,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       : altsRaw is String && altsRaw.isNotEmpty
                           ? altsRaw.split(',').map((e) => e.trim()).toList()
                           : <String>[];
-                  // Convert alt IDs to names
                   final altNames = altIds.map((id) => _getIngredientNameById(id)).toList();
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
