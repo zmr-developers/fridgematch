@@ -3,23 +3,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers/localization_helper.dart';
 import '../main.dart';
 import 'home_screen.dart';
-
+ 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
-
+ 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   String _selectedLang = 'en';
-
+ 
   final _langs = [
     {'code': 'en', 'label': 'English', 'flag': '🇬🇧', 'native': 'English'},
     {'code': 'ar', 'label': 'Arabic', 'flag': '🇸🇦', 'native': 'العربية'},
     {'code': 'fr', 'label': 'French', 'flag': '🇫🇷', 'native': 'Français'},
     {'code': 'es', 'label': 'Spanish', 'flag': '🇪🇸', 'native': 'Español'},
   ];
-
+ 
   Future<void> _proceed() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('app_language', _selectedLang);
@@ -29,7 +29,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
   }
-
+ 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -55,7 +55,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Your personal chef that knows your fridge',
+                      LocalizationHelper.t('welcome_sub'),
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: scheme.primary),
                     ),
@@ -73,11 +73,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           LocalizationHelper.currentLanguage = lang['code']!;
                           FridgeMatchApp.of(context)?.setLanguage(lang['code']!);
                         },
-                        child: Container(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
                           decoration: BoxDecoration(
-                            color: _selectedLang == lang['code'] ? scheme.primaryContainer : scheme.surface,
+                            color: _selectedLang == lang['code']
+                                ? scheme.primaryContainer
+                                : scheme.surface,
                             border: Border.all(
-                              color: _selectedLang == lang['code'] ? scheme.primary : scheme.primary.withOpacity(0.3),
+                              color: _selectedLang == lang['code']
+                                  ? scheme.primary
+                                  : scheme.primary.withOpacity(0.3),
                               width: 2,
                             ),
                             borderRadius: BorderRadius.circular(16),
@@ -90,12 +95,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(lang['native']!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                  Text(lang['label']!, style: TextStyle(color: scheme.primary)),
+                                  Text(lang['native']!,
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: _selectedLang == lang['code']
+                                            ? scheme.primary
+                                            : null,
+                                      )),
+                                  Text(lang['label']!,
+                                      style: TextStyle(
+                                        color: _selectedLang == lang['code']
+                                            ? scheme.primary.withOpacity(0.7)
+                                            : Colors.grey,
+                                        fontSize: 13,
+                                      )),
                                 ],
                               ),
                               const Spacer(),
-                              if (_selectedLang == lang['code']) Icon(Icons.check_circle, color: scheme.primary),
+                              if (_selectedLang == lang['code'])
+                                Icon(Icons.check_circle, color: scheme.primary),
                             ],
                           ),
                         ),
