@@ -19,7 +19,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final TextEditingController _search = TextEditingController();
   BannerAd? _banner;
   InterstitialAd? _interstitial;
-  int _navCount = 0;
   int _tab = 0;
   late TabController _tabController;
   List<Map<String, dynamic>> _meals = [];
@@ -27,30 +26,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   List<Map<String, dynamic>> _shopping = [];
   List<Map<String, dynamic>> _favMeals = [];
   bool _loading = true;
+  String _sortBy = 'match';
+  String _cuisineFilter = 'all';
+  List<String> _availableCuisines = [];
+
   Map<String, bool> _profile = {
-    'pregnant': false,
-    'diabetic': false,
-    'heart': false,
-    'athlete': false,
-    'weight_loss': false,
+    'pregnant': false, 'diabetic': false, 'heart': false,
+    'athlete': false, 'weight_loss': false,
   };
   Map<String, bool> _dietary = {
-    'halal': false,
-    'vegetarian': false,
-    'vegan': false,
-    'gluten_free': false,
+    'halal': false, 'vegetarian': false, 'vegan': false, 'gluten_free': false,
   };
 
   static const _cats = ['vegetables', 'fruits', 'proteins', 'grains', 'dairy', 'condiments', 'spices', 'other'];
   static const _catEmojis = {
-    'vegetables': '🥦',
-    'fruits': '🍎',
-    'proteins': '🥩',
-    'grains': '🌾',
-    'dairy': '🥛',
-    'condiments': '🫙',
-    'spices': '🌶️',
-    'other': '📦',
+    'vegetables': '🥦', 'fruits': '🍎', 'proteins': '🥩', 'grains': '🌾',
+    'dairy': '🥛', 'condiments': '🫙', 'spices': '🌶️', 'other': '📦',
   };
 
   @override
@@ -68,8 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(),
-    );
-    _banner!.load();
+    )..load();
   }
 
   void _loadInterstitial() {
@@ -77,15 +67,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       adUnitId: 'ca-app-pub-3940256099942544/1033173712',
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
-        onAdLoaded: (ad) { _interstitial = ad; },
+        onAdLoaded: (ad) => _interstitial = ad,
         onAdFailedToLoad: (_) {},
       ),
     );
   }
 
   void _showInterstitialIfNeeded() {
-    _navCount++;
-    if (_navCount % 3 == 0 && _interstitial != null) {
+    LocalizationHelper.incrementAd();
+    if (LocalizationHelper.shouldShowAd() && _interstitial != null) {
       _interstitial!.show();
       _interstitial = null;
       _loadInterstitial();
@@ -101,6 +91,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _favMeals = await DatabaseHelper.getFavoriteMeals();
     _shopping = await DatabaseHelper.getShoppingItems();
     _filtered = List.from(_allIngredients);
+
+    // Extract unique cuisines for filter
+    final cuisines = _meals.map((m) => m['cuisine'] as String? ?? '').where((c) => c.isNotEmpty).toSet().toList();
+    cuisines.sort();
+    _availableCuisines = cuisines;
+
     final profileStr = prefs.getString('health_profile');
     if (profileStr != null) _profile = Map<String, bool>.from(jsonDecode(profileStr));
     final dietStr = prefs.getString('dietary_filters');
@@ -139,14 +135,27 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       final pct = (have / req.length * 100).round();
       if (pct > 0) results.add({...meal, 'match_pct': pct, 'have': have, 'total': req.length});
     }
+
+    // Sort
     results.sort((a, b) {
-      if (_profile['weight_loss'] == true) {
+      if (_sortBy == 'calories') {
         final ac = (a['calories'] ?? 999) is int ? a['calories'] as int : int.tryParse(a['calories'].toString()) ?? 999;
         final bc = (b['calories'] ?? 999) is int ? b['calories'] as int : int.tryParse(b['calories'].toString()) ?? 999;
         return ac.compareTo(bc);
       }
       return (b['match_pct'] as int).compareTo(a['match_pct'] as int);
     });
+
+    // Weight loss override
+    if (_profile['weight_loss'] == true && _sortBy == 'match') {
+      results.sort((a, b) {
+        final ac = (a['calories'] ?? 999) is int ? a['calories'] as int : int.tryParse(a['calories'].toString()) ?? 999;
+        final bc = (b['calories'] ?? 999) is int ? b['calories'] as int : int.tryParse(b['calories'].toString()) ?? 999;
+        return ac.compareTo(bc);
+      });
+    }
+
+    // Dietary filter
     if (_dietary.values.any((v) => v)) {
       results = results.where((m) {
         final tagsRaw = m['dietary_tags'];
@@ -161,6 +170,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         return true;
       }).toList();
     }
+
+    // Cuisine filter
+    if (_cuisineFilter != 'all') {
+      results = results.where((m) => m['cuisine'] == _cuisineFilter).toList();
+    }
+
     setState(() {
       _results = results;
       _tab = 1;
@@ -168,17 +183,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
-  Future<void> _addToShopping(Map<String, dynamic> meal) async {
+  Future<void> _addMissingToShopping(Map<String, dynamic> meal) async {
     final req = _parseIngredients(meal['required_ingredients']);
     final missing = req.where((r) => !_selected.contains(r)).toList();
+
+    if (missing.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(LocalizationHelper.t('already_have_all')),
+          backgroundColor: Colors.green,
+        ));
+      }
+      return;
+    }
+
     for (final m in missing) {
       final ing = _allIngredients.firstWhere(
         (i) => i['id'].toString() == m.toString(),
-        orElse: () => {'name_en': m, 'name_ar': m, 'name_fr': m},
+        orElse: () => {'name_en': m, 'name_ar': m, 'name_fr': m, 'name_es': m},
       );
       await DatabaseHelper.addShoppingItem(LocalizationHelper.ingredientName(ing));
     }
     _shopping = await DatabaseHelper.getShoppingItems();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('${missing.length} ${LocalizationHelper.t('missing_added')}'),
+        backgroundColor: Colors.green,
+      ));
+    }
+
     setState(() {
       _tab = 2;
       _tabController.animateTo(2);
@@ -189,6 +223,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     await DatabaseHelper.toggleFavorite(mealId);
     _favMeals = await DatabaseHelper.getFavoriteMeals();
     setState(() {});
+  }
+
+  String _getIngredientNameById(String id) {
+    final ing = _allIngredients.firstWhere(
+      (i) => i['id'].toString() == id,
+      orElse: () => {'name_en': id, 'name_ar': id, 'name_fr': id},
+    );
+    return LocalizationHelper.ingredientName(ing);
   }
 
   Widget _buildIngredientTab() {
@@ -220,13 +262,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           child: Row(children: [
+            Icon(Icons.check_circle, size: 16, color: scheme.primary),
+            const SizedBox(width: 4),
             Text(
               '${_selected.length} ${LocalizationHelper.t('have')}',
-              style: TextStyle(
-                color: scheme.primary,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold, fontSize: 13),
             ),
             const Spacer(),
             TextButton(
@@ -247,10 +287,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 child: Row(children: [
                   Text(_catEmojis[cat] ?? '📦', style: const TextStyle(fontSize: 18)),
                   const SizedBox(width: 8),
-                  Text(
-                    LocalizationHelper.t(cat),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                  ),
+                  Text(LocalizationHelper.t(cat),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 ]),
               ),
               GridView.builder(
@@ -272,7 +310,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     onTap: () => setState(() {
                       if (sel) _selected.remove(id); else _selected.add(id);
                     }),
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
                       decoration: BoxDecoration(
                         color: sel ? scheme.primaryContainer : scheme.surface,
                         border: Border.all(
@@ -312,7 +351,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             onPressed: _selected.isEmpty ? null : _findMeals,
             icon: const Icon(Icons.search),
             label: Text(
-              LocalizationHelper.t('find_meals'),
+              _selected.isEmpty
+                  ? LocalizationHelper.t('find_meals')
+                  : '${LocalizationHelper.t('find_meals')} (${_selected.length})',
               style: const TextStyle(fontSize: 15),
             ),
             style: FilledButton.styleFrom(padding: const EdgeInsets.all(13)),
@@ -324,101 +365,206 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _buildResultsTab() {
     final scheme = Theme.of(context).colorScheme;
-    if (_results.isEmpty) return Center(
-      child: Text(LocalizationHelper.t('no_results'), style: const TextStyle(fontSize: 16)),
-    );
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: _results.length,
-      itemBuilder: (ctx, i) {
-        final meal = _results[i];
-        final pct = meal['match_pct'] as int;
-        final isFav = _favMeals.any((f) => f['id'] == meal['id']);
-        final warningsRaw = meal['warnings'];
-        final warnings = warningsRaw is Map
-            ? warningsRaw
-            : warningsRaw is String && warningsRaw.isNotEmpty
-                ? (jsonDecode(warningsRaw) as Map? ?? {})
-                : <String, dynamic>{};
-        final hasWarn =
-            (_profile['pregnant'] == true && warnings['pregnant'] == true) ||
-            (_profile['diabetic'] == true && warnings['diabetic'] == true) ||
-            (_profile['heart'] == true && warnings['heart'] == true);
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 32)),
-                const SizedBox(width: 12),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(
-                    LocalizationHelper.mealName(meal),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  Text(
-                    '${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  •  ${meal['calories']} ${LocalizationHelper.t('calories')}',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                  ),
-                ])),
-                IconButton(
-                  icon: Icon(
-                    isFav ? Icons.favorite : Icons.favorite_border,
-                    color: isFav ? Colors.red : null,
-                  ),
-                  onPressed: () => _toggleFavorite(meal['id'] as int),
+
+    // Empty state before searching
+    if (_results.isEmpty && _selected.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text('🥗', style: TextStyle(fontSize: 64)),
+            const SizedBox(height: 16),
+            Text(
+              LocalizationHelper.t('no_ingredients_selected'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, height: 1.5),
+            ),
+          ]),
+        ),
+      );
+    }
+
+    // Empty after search
+    if (_results.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text('🍽️', style: TextStyle(fontSize: 64)),
+            const SizedBox(height: 16),
+            Text(LocalizationHelper.t('no_results'),
+                textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+          ]),
+        ),
+      );
+    }
+
+    return Column(children: [
+      // Sort + Cuisine filter bar
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+        child: Row(children: [
+          // Sort toggle
+          GestureDetector(
+            onTap: () => setState(() => _sortBy = _sortBy == 'match' ? 'calories' : 'match'),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: scheme.primary),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.sort, size: 14, color: scheme.primary),
+                const SizedBox(width: 4),
+                Text(
+                  _sortBy == 'match'
+                      ? LocalizationHelper.t('sort_match')
+                      : LocalizationHelper.t('sort_calories'),
+                  style: TextStyle(fontSize: 12, color: scheme.primary, fontWeight: FontWeight.bold),
                 ),
               ]),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: pct / 100,
-                backgroundColor: Colors.grey.shade200,
-                color: pct >= 80 ? Colors.green : pct >= 50 ? Colors.orange : Colors.red,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${LocalizationHelper.t('match')}: $pct% (${meal['have']}/${meal['total']})',
-                style: TextStyle(
-                  color: pct >= 80 ? Colors.green : Colors.orange,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              if (hasWarn) ...[const SizedBox(height: 6), _buildWarning(warnings)],
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: OutlinedButton(
-                  onPressed: () {
-                    _showMealDetail(meal);
-                    _showInterstitialIfNeeded();
-                  },
-                  child: Text(LocalizationHelper.t('view_detail')),
-                )),
-                const SizedBox(width: 8),
-                Expanded(child: FilledButton(
-                  onPressed: () => _addToShopping(meal),
-                  child: Text(LocalizationHelper.t('add_shopping')),
-                )),
-              ]),
-            ]),
+            ),
           ),
-        );
-      },
+          const SizedBox(width: 8),
+          // Cuisine filter chips
+          _cuisineChip(LocalizationHelper.t('all_cuisines'), 'all'),
+          ..._availableCuisines.map((c) => _cuisineChip(c, c)),
+        ]),
+      ),
+
+      // Results count
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            '${_results.length} meals found',
+            style: TextStyle(fontSize: 12, color: scheme.primary, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+
+      Expanded(
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          itemCount: _results.length,
+          itemBuilder: (ctx, i) {
+            final meal = _results[i];
+            final pct = meal['match_pct'] as int;
+            final isFav = _favMeals.any((f) => f['id'] == meal['id']);
+            final warningsRaw = meal['warnings'];
+            final warnings = warningsRaw is Map
+                ? warningsRaw
+                : warningsRaw is String && warningsRaw.isNotEmpty
+                    ? (jsonDecode(warningsRaw) as Map? ?? {})
+                    : <String, dynamic>{};
+            final hasWarn =
+                (_profile['pregnant'] == true && warnings['pregnant'] == true) ||
+                (_profile['diabetic'] == true && warnings['diabetic'] == true) ||
+                (_profile['heart'] == true && warnings['heart'] == true);
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 32)),
+                    const SizedBox(width: 10),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(LocalizationHelper.mealName(meal),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(
+                        '${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  •  ${meal['calories']} ${LocalizationHelper.t('calories')}',
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      ),
+                    ])),
+                    IconButton(
+                      icon: Icon(isFav ? Icons.favorite : Icons.favorite_border,
+                          color: isFav ? Colors.red : null, size: 22),
+                      onPressed: () => _toggleFavorite(meal['id'] as int),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ]),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: pct / 100,
+                      minHeight: 6,
+                      backgroundColor: Colors.grey.shade200,
+                      color: pct >= 80 ? Colors.green : pct >= 50 ? Colors.orange : Colors.red,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${LocalizationHelper.t('match')}: $pct% (${meal['have']}/${meal['total']})',
+                    style: TextStyle(
+                      color: pct >= 80 ? Colors.green : Colors.orange,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                  if (hasWarn) ...[const SizedBox(height: 6), _buildWarning(warnings)],
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Expanded(child: OutlinedButton(
+                      onPressed: () {
+                        _showMealDetail(meal);
+                        _showInterstitialIfNeeded();
+                      },
+                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
+                      child: Text(LocalizationHelper.t('view_detail'), style: const TextStyle(fontSize: 13)),
+                    )),
+                    const SizedBox(width: 8),
+                    Expanded(child: FilledButton(
+                      onPressed: () => _addMissingToShopping(meal),
+                      style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
+                      child: Text(LocalizationHelper.t('add_shopping'), style: const TextStyle(fontSize: 13)),
+                    )),
+                  ]),
+                ]),
+              ),
+            );
+          },
+        ),
+      ),
+    ]);
+  }
+
+  Widget _cuisineChip(String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = _cuisineFilter == value;
+    return GestureDetector(
+      onTap: () => setState(() => _cuisineFilter = value),
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary : scheme.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? scheme.primary : scheme.outline),
+        ),
+        child: Text(label,
+            style: TextStyle(
+              fontSize: 12,
+              color: selected ? Colors.white : null,
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            )),
+      ),
     );
   }
 
   Widget _buildWarning(Map warnings) {
     final msgs = <String>[];
-    if (_profile['pregnant'] == true && warnings['pregnant'] == true) {
-      msgs.add(LocalizationHelper.t('pregnant_warning'));
-    }
-    if (_profile['diabetic'] == true && warnings['diabetic'] == true) {
-      msgs.add(LocalizationHelper.t('diabetic_warning'));
-    }
-    if (_profile['heart'] == true && warnings['heart'] == true) {
-      msgs.add(LocalizationHelper.t('heart_warning'));
-    }
+    if (_profile['pregnant'] == true && warnings['pregnant'] == true) msgs.add(LocalizationHelper.t('pregnant_warning'));
+    if (_profile['diabetic'] == true && warnings['diabetic'] == true) msgs.add(LocalizationHelper.t('diabetic_warning'));
+    if (_profile['heart'] == true && warnings['heart'] == true) msgs.add(LocalizationHelper.t('heart_warning'));
     if (msgs.isEmpty) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.all(8),
@@ -427,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.orange),
       ),
-      child: Text(msgs.join('\n'), style: const TextStyle(fontSize: 12, color: Colors.deepOrange)),
+      child: Text(msgs.join('\n'), style: const TextStyle(fontSize: 11, color: Colors.deepOrange)),
     );
   }
 
@@ -452,16 +598,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 Row(children: [
                   Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 48)),
                   const SizedBox(width: 16),
-                  Expanded(child: Text(
-                    LocalizationHelper.mealName(meal),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
-                  )),
+                  Expanded(child: Text(LocalizationHelper.mealName(meal),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22))),
                   IconButton(
-                    icon: Icon(
-                      isFav ? Icons.favorite : Icons.favorite_border,
-                      color: isFav ? Colors.red : null,
-                      size: 32,
-                    ),
+                    icon: Icon(isFav ? Icons.favorite : Icons.favorite_border,
+                        color: isFav ? Colors.red : null, size: 32),
                     onPressed: () async {
                       await _toggleFavorite(meal['id'] as int);
                       setS(() { isFav = _favMeals.any((f) => f['id'] == meal['id']); });
@@ -469,17 +610,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                 ]),
                 const SizedBox(height: 8),
-                Text(
-                  '${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  |  ${meal['calories']} kcal',
-                  style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold),
-                ),
+                Text('${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  |  ${meal['calories']} kcal',
+                    style: TextStyle(color: scheme.primary, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 Text(LocalizationHelper.t('health_benefits'),
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 4),
                 Text(LocalizationHelper.healthBenefit(meal)),
                 const Divider(height: 24),
-                Text(LocalizationHelper.t('ingredients'),
+                Text(LocalizationHelper.t('ingredients_detail'),
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 8),
                 ...req.map((r) {
@@ -489,44 +628,46 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     orElse: () => {'id': r, 'name_en': r, 'name_ar': r, 'name_fr': r, 'emoji': '🍽️'},
                   );
                   final altsRaw = ing['alternatives'];
-                  final alts = altsRaw is List
+                  final altIds = altsRaw is List
                       ? altsRaw.map((e) => e.toString()).toList()
                       : altsRaw is String && altsRaw.isNotEmpty
                           ? altsRaw.split(',').map((e) => e.trim()).toList()
                           : <String>[];
+                  // Convert alt IDs to names
+                  final altNames = altIds.map((id) => _getIngredientNameById(id)).toList();
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: Row(children: [
                       Text(ing['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 20)),
                       const SizedBox(width: 8),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(
-                          LocalizationHelper.ingredientName(ing),
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: have ? Colors.green : Colors.red,
-                          ),
-                        ),
-                        if (!have && alts.isNotEmpty)
-                          Text(
-                            '${LocalizationHelper.t('alternatives')}: ${alts.join(', ')}',
-                            style: const TextStyle(fontSize: 11, color: Colors.grey),
-                          ),
+                        Text(LocalizationHelper.ingredientName(ing),
+                            style: TextStyle(fontWeight: FontWeight.bold,
+                                color: have ? Colors.green : Colors.red)),
+                        if (!have && altNames.isNotEmpty)
+                          Text('${LocalizationHelper.t('alternatives')}: ${altNames.join(', ')}',
+                              style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       ])),
-                      Icon(
-                        have ? Icons.check_circle : Icons.cancel,
-                        color: have ? Colors.green : Colors.red,
-                        size: 20,
-                      ),
+                      Icon(have ? Icons.check_circle : Icons.cancel,
+                          color: have ? Colors.green : Colors.red, size: 20),
                     ]),
                   );
                 }),
                 const Divider(height: 24),
-                Text(LocalizationHelper.t('recipe'),
+                Text(LocalizationHelper.t('recipe_steps'),
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const SizedBox(height: 8),
                 Text(LocalizationHelper.recipeSteps(meal),
                     style: const TextStyle(fontSize: 14, height: 1.6)),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _addMissingToShopping(meal);
+                  },
+                  icon: const Icon(Icons.shopping_cart),
+                  label: Text(LocalizationHelper.t('add_shopping')),
+                ),
               ],
             ),
           );
@@ -536,66 +677,145 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildShoppingTab() {
-    if (_shopping.isEmpty) return Center(child: Text(LocalizationHelper.t('no_shopping')));
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: _shopping.length,
-      itemBuilder: (ctx, i) {
-        final item = _shopping[i];
-        return Card(
-          child: ListTile(
-            leading: Checkbox(
-              value: item['bought'] == 1,
-              onChanged: (_) async {
-                await DatabaseHelper.toggleShoppingBought(item['id'] as int, item['bought'] as int);
+    final scheme = Theme.of(context).colorScheme;
+    if (_shopping.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text('🛒', style: TextStyle(fontSize: 64)),
+            const SizedBox(height: 16),
+            Text(LocalizationHelper.t('no_shopping'),
+                textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, height: 1.5)),
+          ]),
+        ),
+      );
+    }
+
+    final bought = _shopping.where((i) => i['bought'] == 1).length;
+
+    return Column(children: [
+      if (bought > 0)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            TextButton.icon(
+              onPressed: () async {
+                for (final item in _shopping.where((i) => i['bought'] == 1)) {
+                  await DatabaseHelper.deleteShoppingItem(item['id'] as int);
+                }
                 _shopping = await DatabaseHelper.getShoppingItems();
                 setState(() {});
               },
+              icon: const Icon(Icons.done_all, size: 16),
+              label: Text(LocalizationHelper.t('clear_done'), style: const TextStyle(fontSize: 13)),
             ),
-            title: Text(
-              item['name'] ?? '',
-              style: TextStyle(
-                decoration: item['bought'] == 1 ? TextDecoration.lineThrough : null,
+          ]),
+        ),
+      Expanded(
+        child: ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: _shopping.length,
+          itemBuilder: (ctx, i) {
+            final item = _shopping[i];
+            final isBought = item['bought'] == 1;
+            return Dismissible(
+              key: Key('shop_${item['id']}'),
+              direction: DismissDirection.endToStart,
+              background: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 16),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.delete, color: Colors.white),
               ),
-            ),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              onPressed: () async {
+              onDismissed: (_) async {
                 await DatabaseHelper.deleteShoppingItem(item['id'] as int);
                 _shopping = await DatabaseHelper.getShoppingItems();
                 setState(() {});
               },
-            ),
-          ),
-        );
-      },
-    );
+              child: Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: Checkbox(
+                    value: isBought,
+                    activeColor: scheme.primary,
+                    onChanged: (_) async {
+                      await DatabaseHelper.toggleShoppingBought(item['id'] as int, item['bought'] as int);
+                      _shopping = await DatabaseHelper.getShoppingItems();
+                      setState(() {});
+                    },
+                  ),
+                  title: Text(
+                    item['name'] ?? '',
+                    style: TextStyle(
+                      decoration: isBought ? TextDecoration.lineThrough : null,
+                      color: isBought ? Colors.grey : null,
+                      fontWeight: isBought ? FontWeight.normal : FontWeight.bold,
+                    ),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () async {
+                      await DatabaseHelper.deleteShoppingItem(item['id'] as int);
+                      _shopping = await DatabaseHelper.getShoppingItems();
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ]);
   }
 
   Widget _buildFavoritesTab() {
-    if (_favMeals.isEmpty) return Center(child: Text(LocalizationHelper.t('no_favorites')));
+    if (_favMeals.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text('❤️', style: TextStyle(fontSize: 64)),
+            const SizedBox(height: 16),
+            Text(LocalizationHelper.t('no_favorites'),
+                textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, height: 1.5)),
+          ]),
+        ),
+      );
+    }
     return ListView.builder(
       padding: const EdgeInsets.all(12),
       itemCount: _favMeals.length,
       itemBuilder: (ctx, i) {
         final meal = _favMeals[i];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
-            leading: Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 32)),
-            title: Text(LocalizationHelper.mealName(meal),
-                style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(
-                '${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  •  ${meal['calories']} kcal'),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              onPressed: () async {
-                await DatabaseHelper.toggleFavorite(meal['id'] as int);
-                _favMeals = await DatabaseHelper.getFavoriteMeals();
-                setState(() {});
-              },
+        return Dismissible(
+          key: Key('fav_${meal['id']}'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 16),
+            decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(12)),
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          onDismissed: (_) async {
+            await DatabaseHelper.toggleFavorite(meal['id'] as int);
+            _favMeals = await DatabaseHelper.getFavoriteMeals();
+            setState(() {});
+          },
+          child: Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: ListTile(
+              leading: Text(meal['emoji'] ?? '🍽️', style: const TextStyle(fontSize: 32)),
+              title: Text(LocalizationHelper.mealName(meal),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text('${meal['cuisine_flag'] ?? ''} ${meal['cuisine'] ?? ''}  •  ${meal['calories']} kcal'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showMealDetail(meal),
             ),
-            onTap: () => _showMealDetail(meal),
           ),
         );
       },
@@ -617,10 +837,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return Scaffold(
       appBar: AppBar(
         backgroundColor: scheme.primaryContainer,
-        title: Text(
-          LocalizationHelper.t('app_title'),
-          style: TextStyle(fontWeight: FontWeight.bold, color: scheme.primary),
-        ),
+        title: Text(LocalizationHelper.t('app_title'),
+            style: TextStyle(fontWeight: FontWeight.bold, color: scheme.primary)),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -632,12 +850,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             },
           ),
         ],
-        bottom: TabBar(controller: _tabController, tabs: [
-          Tab(icon: const Icon(Icons.kitchen), text: LocalizationHelper.t('ingredients')),
-          Tab(icon: const Icon(Icons.restaurant_menu), text: LocalizationHelper.t('results')),
-          Tab(icon: const Icon(Icons.shopping_cart), text: LocalizationHelper.t('shopping_list')),
-          Tab(icon: const Icon(Icons.favorite), text: LocalizationHelper.t('favorites')),
-        ]),
+        bottom: TabBar(
+          controller: _tabController,
+          labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+          unselectedLabelStyle: const TextStyle(fontSize: 10),
+          indicatorSize: TabBarIndicatorSize.tab,
+          tabs: [
+            Tab(icon: const Icon(Icons.kitchen, size: 20), text: LocalizationHelper.t('ingredients')),
+            Tab(icon: const Icon(Icons.restaurant_menu, size: 20), text: LocalizationHelper.t('results')),
+            Tab(icon: const Icon(Icons.shopping_cart, size: 20), text: LocalizationHelper.t('shopping')),
+            Tab(icon: const Icon(Icons.favorite, size: 20), text: LocalizationHelper.t('favorites')),
+          ],
+        ),
       ),
       body: Column(children: [
         Expanded(
