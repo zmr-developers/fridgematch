@@ -17,6 +17,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     {'code': 'en', 'label': 'English', 'flag': '🇬🇧', 'native': 'English'},
     {'code': 'ar', 'label': 'Arabic', 'flag': '🇸🇦', 'native': 'العربية'},
     {'code': 'fr', 'label': 'French', 'flag': '🇫🇷', 'native': 'Français'},
+    {'code': 'es', 'label': 'Spanish', 'flag': '🇪🇸', 'native': 'Español'},
   ];
 
   Future<void> _proceed() async {
