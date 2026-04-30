@@ -23,13 +23,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late TabController _tabController;
   List<Map<String, dynamic>> _meals = [];
   List<Map<String, dynamic>> _results = [];
-  List<Map<String, dynamic>> _baseResults = []; // stores unsorted original results
+  List<Map<String, dynamic>> _baseResults = [];
   List<Map<String, dynamic>> _shopping = [];
   List<Map<String, dynamic>> _favMeals = [];
   bool _loading = true;
   String _sortBy = 'match';
   String _cuisineFilter = 'all';
   List<String> _availableCuisines = [];
+
+  // FIX 1: Category filter for ingredient tab
+  String _categoryFilter = 'all';
 
   Map<String, bool> _profile = {
     'pregnant': false, 'diabetic': false, 'heart': false,
@@ -117,6 +120,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               final name = LocalizationHelper.ingredientName(i).toLowerCase();
               return name.contains(q.toLowerCase());
             }).toList();
+      // Reset category filter when searching
+      if (q.isNotEmpty) _categoryFilter = 'all';
     });
   }
 
@@ -127,6 +132,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       return raw.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     }
     return [];
+  }
+
+  // FIX 2: Clear results when no ingredients selected
+  void _clearResultsIfEmpty() {
+    if (_selected.isEmpty) {
+      setState(() {
+        _results = [];
+        _baseResults = [];
+        _cuisineFilter = 'all';
+        _sortBy = 'match';
+      });
+    }
   }
 
   void _findMeals() {
@@ -157,13 +174,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }).toList();
     }
 
-    // Store base results before cuisine/sort
     _baseResults = List.from(results);
-
-    // Reset cuisine filter when doing new search
     _cuisineFilter = 'all';
-
-    // Apply sort and cuisine
     _applyFiltersToResults(baseResults: results);
 
     setState(() {
@@ -172,14 +184,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
-  // ─── CORE FIX: Cuisine pushes matching meals to top ──────────
   void _applyFiltersToResults({List<Map<String, dynamic>>? baseResults}) {
     final source = baseResults ?? List.from(_baseResults);
     if (source.isEmpty) return;
 
-    List<Map<String, dynamic>> sorted;
-
-    // Sort function based on _sortBy
     int sortFn(Map a, Map b) {
       if (_sortBy == 'calories' || _profile['weight_loss'] == true) {
         final ac = (a['calories'] ?? 999) is int ? a['calories'] as int : int.tryParse(a['calories'].toString()) ?? 999;
@@ -189,10 +197,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       return (b['match_pct'] as int).compareTo(a['match_pct'] as int);
     }
 
+    List<Map<String, dynamic>> sorted;
     if (_cuisineFilter == 'all') {
       sorted = List.from(source)..sort(sortFn);
     } else {
-      // Split: matching cuisine on top, others below
       final matching = source.where((m) => m['cuisine'] == _cuisineFilter).toList();
       final others = source.where((m) => m['cuisine'] != _cuisineFilter).toList();
       matching.sort(sortFn);
@@ -253,8 +261,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return LocalizationHelper.ingredientName(ing);
   }
 
+  // ─── INGREDIENT TAB WITH CATEGORY FILTER ──────────────────────
   Widget _buildIngredientTab() {
     final scheme = Theme.of(context).colorScheme;
+
+    // Build grouped map
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final cat in _cats) grouped[cat] = [];
     for (final i in _filtered) {
@@ -262,7 +273,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       grouped[cat] ??= [];
       grouped[cat]!.add(i);
     }
+
+    // Determine which categories to show
+    final catsToShow = _categoryFilter == 'all'
+        ? _cats.where((c) => (grouped[c] ?? []).isNotEmpty).toList()
+        : [_categoryFilter];
+
     return Column(children: [
+      // Search bar
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
         child: TextField(
@@ -271,6 +289,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           decoration: InputDecoration(
             hintText: LocalizationHelper.t('search'),
             prefixIcon: const Icon(Icons.search),
+            suffixIcon: _search.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 18),
+                    onPressed: () {
+                      _search.clear();
+                      _filterIngredients('');
+                    },
+                  )
+                : null,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             filled: true,
             isDense: true,
@@ -278,6 +305,27 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ),
       ),
+
+      // FIX 1: Category filter chips
+      SizedBox(
+        height: 40,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          children: [
+            _catChip('all', '🍽️', 'All'),
+            ..._cats.map((cat) {
+              final count = (grouped[cat] ?? []).length;
+              if (count == 0) return const SizedBox.shrink();
+              return _catChip(cat, _catEmojis[cat] ?? '📦', LocalizationHelper.t(cat));
+            }),
+          ],
+        ),
+      ),
+
+      const SizedBox(height: 4),
+
+      // Selected count + clear
       if (_selected.isNotEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -290,15 +338,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
             const Spacer(),
             TextButton(
-              onPressed: () => setState(() => _selected.clear()),
+              onPressed: () {
+                setState(() => _selected.clear());
+                _clearResultsIfEmpty(); // FIX 2
+              },
               style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
               child: Text(LocalizationHelper.t('clear_all'), style: const TextStyle(fontSize: 13)),
             ),
           ]),
         ),
+
+      // Ingredient grid
       Expanded(
         child: ListView(
-          children: _cats.map((cat) {
+          children: catsToShow.map((cat) {
             final items = grouped[cat] ?? [];
             if (items.isEmpty) return const SizedBox.shrink();
             return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -309,6 +362,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   const SizedBox(width: 8),
                   Text(LocalizationHelper.t(cat),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(width: 8),
+                  // Selected count in this category
+                  Builder(builder: (_) {
+                    final selCount = items.where((i) => _selected.contains(i['id'].toString())).length;
+                    if (selCount == 0) return const SizedBox.shrink();
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text('$selCount', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                    );
+                  }),
                 ]),
               ),
               GridView.builder(
@@ -327,9 +394,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   final id = ing['id'].toString();
                   final sel = _selected.contains(id);
                   return GestureDetector(
-                    onTap: () => setState(() {
-                      if (sel) _selected.remove(id); else _selected.add(id);
-                    }),
+                    onTap: () {
+                      setState(() {
+                        if (sel) {
+                          _selected.remove(id);
+                        } else {
+                          _selected.add(id);
+                        }
+                      });
+                      // FIX 2: clear results if nothing selected
+                      _clearResultsIfEmpty();
+                    },
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 150),
                       decoration: BoxDecoration(
@@ -363,6 +438,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           }).toList(),
         ),
       ),
+
+      // Find Meals button
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
         child: SizedBox(
@@ -381,6 +458,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
       ),
     ]);
+  }
+
+  // Category chip widget
+  Widget _catChip(String value, String emoji, String label) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = _categoryFilter == value;
+    return GestureDetector(
+      onTap: () => setState(() => _categoryFilter = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary : scheme.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? scheme.primary : scheme.outline,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(emoji, style: const TextStyle(fontSize: 14)),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: selected ? Colors.white : null,
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 
   Widget _buildResultsTab() {
@@ -417,7 +528,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       );
     }
 
-    // Find where cuisine section ends for divider
     final cuisineSplitIndex = _cuisineFilter != 'all'
         ? _results.indexWhere((m) => m['cuisine'] != _cuisineFilter)
         : -1;
@@ -428,7 +538,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
         child: Row(children: [
-          // Sort toggle
           GestureDetector(
             onTap: () {
               setState(() => _sortBy = _sortBy == 'match' ? 'calories' : 'match');
@@ -459,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]),
       ),
 
-      // Results count + cuisine label
+      // Results count
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         child: Row(children: [
@@ -471,14 +580,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: scheme.primary,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$_cuisineFilter first',
-                style: const TextStyle(fontSize: 11, color: Colors.white),
-              ),
+              decoration: BoxDecoration(color: scheme.primary, borderRadius: BorderRadius.circular(10)),
+              child: Text('$_cuisineFilter first',
+                  style: const TextStyle(fontSize: 11, color: Colors.white)),
             ),
           ],
         ]),
@@ -489,7 +593,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
           itemCount: _results.length + (cuisineSplitIndex > 0 ? 1 : 0),
           itemBuilder: (ctx, rawIndex) {
-            // Inject divider between cuisine match and others
             if (cuisineSplitIndex > 0 && rawIndex == cuisineSplitIndex) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
@@ -497,17 +600,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   const Expanded(child: Divider()),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Text(
-                      'Other cuisines',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                    ),
+                    child: Text('Other cuisines',
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                   ),
                   const Expanded(child: Divider()),
                 ]),
               );
             }
 
-            // Adjust index after divider injection
             final i = cuisineSplitIndex > 0 && rawIndex > cuisineSplitIndex
                 ? rawIndex - 1
                 : rawIndex;
@@ -567,8 +667,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     '${LocalizationHelper.t('match')}: $pct% (${meal['have']}/${meal['total']})',
                     style: TextStyle(
                       color: pct >= 80 ? Colors.green : Colors.orange,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
+                      fontWeight: FontWeight.bold, fontSize: 12,
                     ),
                   ),
                   if (hasWarn) ...[const SizedBox(height: 6), _buildWarning(warnings)],
@@ -789,9 +888,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.only(right: 16),
                 decoration: BoxDecoration(
-                  color: Colors.red,
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                  color: Colors.red, borderRadius: BorderRadius.circular(12)),
                 child: const Icon(Icons.delete, color: Colors.white),
               ),
               onDismissed: (_) async {
@@ -811,14 +908,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       setState(() {});
                     },
                   ),
-                  title: Text(
-                    item['name'] ?? '',
-                    style: TextStyle(
-                      decoration: isBought ? TextDecoration.lineThrough : null,
-                      color: isBought ? Colors.grey : null,
-                      fontWeight: isBought ? FontWeight.normal : FontWeight.bold,
-                    ),
-                  ),
+                  title: Text(item['name'] ?? '',
+                      style: TextStyle(
+                        decoration: isBought ? TextDecoration.lineThrough : null,
+                        color: isBought ? Colors.grey : null,
+                        fontWeight: isBought ? FontWeight.normal : FontWeight.bold,
+                      )),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
                     onPressed: () async {
