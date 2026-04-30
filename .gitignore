@@ -23,3 +23,5 @@ android/key.properties
 # OS
 .DS_Store
 Thumbs.db
+
+keystore.base64.txt
