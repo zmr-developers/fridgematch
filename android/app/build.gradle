@@ -54,21 +54,29 @@ android {
     }
 
     signingConfigs {
-        release {
+    release {
+        if (keystorePropertiesFile.exists()) {
             keyAlias keystoreProperties['keyAlias']
             keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storeFile file(keystoreProperties['storeFile'])
             storePassword keystoreProperties['storePassword']
         }
     }
+}
 
-    buildTypes {
-        release {
+buildTypes {
+    release {
+        if (keystorePropertiesFile.exists()) {
             signingConfig signingConfigs.release
-            minifyEnabled false
-            shrinkResources false
+        } else {
+            throw new GradleException(
+                "key.properties not found. Cannot build release without signing config."
+            )
         }
+        minifyEnabled false
+        shrinkResources false
     }
+}
 }
 
 flutter {
