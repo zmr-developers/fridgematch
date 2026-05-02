@@ -27,8 +27,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     {'code': 'en', 'flag': '🇬🇧', 'label': 'English', 'native': 'English'},
     {'code': 'ar', 'flag': '🇸🇦', 'label': 'Arabic', 'native': 'العربية'},
     {'code': 'fr', 'flag': '🇫🇷', 'label': 'French', 'native': 'Français'},
-    {'code': 'es', 'flag': '🇪🇸', 'label': 'Spanish', 'native': 'Español'},
   ];
+  static const _supportedLangs = ['en', 'ar', 'fr'];
   final _ageGroups = ['<18', '18-30', '31-50', '51-65', '65+'];
 
   @override
@@ -40,7 +40,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _lang = prefs.getString('app_language') ?? 'en';
+      final savedLang = prefs.getString('app_language') ?? 'en';
+      // If a user previously selected Spanish (now unsupported), fall back to English.
+      _lang = _supportedLangs.contains(savedLang) ? savedLang : 'en';
       _gender = prefs.getString('gender') ?? 'male';
       _ageGroup = prefs.getString('age_group') ?? '18-30';
       final profileStr = prefs.getString('health_profile');
@@ -107,7 +109,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
 
-        // Language
         _sectionTitle(LocalizationHelper.t('language'), Icons.language),
         ..._langs.map((l) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -148,10 +149,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         const Divider(height: 8),
 
-        // Profile
         _sectionTitle(LocalizationHelper.t('profile'), Icons.person),
 
-        // Gender
         Text(LocalizationHelper.t('gender'), style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         Row(children: [
@@ -189,7 +188,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ]),
         const SizedBox(height: 16),
 
-        // Age group
         Text(LocalizationHelper.t('age_group'), style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: _ageGroups.map((a) => GestureDetector(
@@ -211,7 +209,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         const Divider(height: 24),
 
-        // Health conditions
         _sectionTitle(LocalizationHelper.t('health_conditions'), Icons.medical_services),
         ...(_profile.keys.map((k) => Container(
           margin: const EdgeInsets.only(bottom: 6),
@@ -233,7 +230,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         const Divider(height: 16),
 
-        // Dietary filters
         _sectionTitle(LocalizationHelper.t('dietary'), Icons.restaurant),
         ...(_dietary.keys.map((k) => Container(
           margin: const EdgeInsets.only(bottom: 6),

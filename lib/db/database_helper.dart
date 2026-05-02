@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 
 class DatabaseHelper {
@@ -42,30 +41,28 @@ class DatabaseHelper {
     await db.execute('CREATE TABLE IF NOT EXISTS shopping(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, bought INTEGER DEFAULT 0)');
   }
 
-static Future<void> _seedData(Database db) async {
-  try {
-    debugPrint('SEEDING: Loading meals.json...');
-    final mealsJson = await rootBundle.loadString('assets/meals.json');
-    debugPrint('SEEDING: meals.json loaded, length: ${mealsJson.length}');
-    final ingredientsJson = await rootBundle.loadString('assets/ingredients.json');
-    debugPrint('SEEDING: ingredients.json loaded, length: ${ingredientsJson.length}');
-    final List meals = jsonDecode(mealsJson);
-    final List ingredients = jsonDecode(ingredientsJson);
-    debugPrint('SEEDING: Parsed ${meals.length} meals, ${ingredients.length} ingredients');
-    for (final m in meals) {
-      await db.insert('meals', {'id': m['id'], 'data': jsonEncode(m)},
-          conflictAlgorithm: ConflictAlgorithm.replace);
+  static Future<void> _seedData(Database db) async {
+    try {
+      final mealsJson = await rootBundle.loadString('assets/meals.json');
+      final ingredientsJson = await rootBundle.loadString('assets/ingredients.json');
+      final List meals = jsonDecode(mealsJson);
+      final List ingredients = jsonDecode(ingredientsJson);
+
+      await db.transaction((txn) async {
+        for (final m in meals) {
+          await txn.insert('meals', {'id': m['id'], 'data': jsonEncode(m)},
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        for (final i in ingredients) {
+          await txn.insert('ingredients', {'id': i['id'].toString(), 'data': jsonEncode(i)},
+              conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      });
+    } catch (e, stack) {
+      debugPrint('SEEDING ERROR: $e');
+      debugPrint('SEEDING STACK: $stack');
     }
-    for (final i in ingredients) {
-      await db.insert('ingredients', {'id': i['id'].toString(), 'data': jsonEncode(i)},
-          conflictAlgorithm: ConflictAlgorithm.replace);
-    }
-    debugPrint('SEEDING: Done!');
-  } catch (e, stack) {
-    debugPrint('SEEDING ERROR: $e');
-    debugPrint('SEEDING STACK: $stack');
   }
-}
 
   static Future<List<Map<String, dynamic>>> getMeals() async {
     final db = await database;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/home_screen.dart';
 import 'helpers/localization_helper.dart';
@@ -8,28 +9,36 @@ import 'db/database_helper.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await MobileAds.instance.initialize();
-  
-  // Initialize database FIRST - this seeds meals and ingredients
-  await DatabaseHelper.database;
 
-  final meals = await DatabaseHelper.getMeals();
-final ings = await DatabaseHelper.getIngredients();
-debugPrint('MEALS COUNT: ${meals.length}');
-debugPrint('INGREDIENTS COUNT: ${ings.length}');
-  
+  // Initialize AdMob — never let this crash app launch.
+  try {
+    await MobileAds.instance.initialize();
+  } catch (e) {
+    debugPrint('AdMob init failed (non-fatal): $e');
+  }
+
+  // Initialize database — never let this crash app launch either.
+  try {
+    await DatabaseHelper.database;
+  } catch (e) {
+    debugPrint('Database init failed (non-fatal): $e');
+  }
+
   final prefs = await SharedPreferences.getInstance();
   final bool seenOnboarding = prefs.getBool('seen_onboarding') ?? false;
   final String lang = prefs.getString('app_language') ?? 'en';
   LocalizationHelper.currentLanguage = lang;
+
   runApp(FridgeMatchApp(showOnboarding: !seenOnboarding));
 }
 
 class FridgeMatchApp extends StatefulWidget {
   final bool showOnboarding;
   const FridgeMatchApp({super.key, required this.showOnboarding});
+
   static _FridgeMatchAppState? of(BuildContext context) =>
       context.findAncestorStateOfType<_FridgeMatchAppState>();
+
   @override
   State<FridgeMatchApp> createState() => _FridgeMatchAppState();
 }

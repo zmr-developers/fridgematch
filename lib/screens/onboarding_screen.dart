@@ -3,23 +3,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../helpers/localization_helper.dart';
 import '../main.dart';
 import 'home_screen.dart';
- 
+
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
- 
+
 class _OnboardingScreenState extends State<OnboardingScreen> {
   String _selectedLang = 'en';
- 
+
   final _langs = [
     {'code': 'en', 'label': 'English', 'flag': '🇬🇧', 'native': 'English'},
     {'code': 'ar', 'label': 'Arabic', 'flag': '🇸🇦', 'native': 'العربية'},
     {'code': 'fr', 'label': 'French', 'flag': '🇫🇷', 'native': 'Français'},
-    {'code': 'es', 'label': 'Spanish', 'flag': '🇪🇸', 'native': 'Español'},
   ];
- 
+
   Future<void> _proceed() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('app_language', _selectedLang);
@@ -29,7 +28,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
     Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
   }
- 
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;

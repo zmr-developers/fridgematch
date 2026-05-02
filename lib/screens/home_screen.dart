@@ -18,7 +18,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final Set<String> _selected = {};
   final TextEditingController _search = TextEditingController();
   BannerAd? _banner;
+  bool _bannerReady = false;
   InterstitialAd? _interstitial;
+  DateTime? _lastInterstitialShownAt;
+  static const _interstitialCooldown = Duration(seconds: 30);
+
   int _tab = 0;
   late TabController _tabController;
   List<Map<String, dynamic>> _meals = [];
@@ -30,8 +34,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String _sortBy = 'match';
   String _cuisineFilter = 'all';
   List<String> _availableCuisines = [];
-
-  // FIX 1: Category filter for ingredient tab
   String _categoryFilter = 'all';
 
   Map<String, bool> _profile = {
@@ -54,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() => setState(() => _tab = _tabController.index));
     _loadBanner();
+    _loadInterstitial();
     _loadAll();
   }
 
@@ -62,7 +65,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       adUnitId: 'ca-app-pub-5869309756805845/3435404041',
       size: AdSize.banner,
       request: const AdRequest(),
-      listener: BannerAdListener(),
+      listener: BannerAdListener(
+        onAdLoaded: (_) {
+          if (mounted) setState(() => _bannerReady = true);
+        },
+        onAdFailedToLoad: (ad, error) {
+          ad.dispose();
+          if (mounted) {
+            setState(() {
+              _banner = null;
+              _bannerReady = false;
+            });
+          }
+          debugPrint('Banner ad failed: $error');
+        },
+      ),
     )..load();
   }
 
@@ -72,16 +89,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) => _interstitial = ad,
-        onAdFailedToLoad: (_) {},
+        onAdFailedToLoad: (error) {
+          _interstitial = null;
+          debugPrint('Interstitial ad failed: $error');
+        },
       ),
     );
   }
 
   void _showInterstitialIfNeeded() {
+    // Cooldown: never show two interstitials within 30 seconds.
+    if (_lastInterstitialShownAt != null &&
+        DateTime.now().difference(_lastInterstitialShownAt!) < _interstitialCooldown) {
+      return;
+    }
+
     LocalizationHelper.incrementAd();
     if (LocalizationHelper.shouldShowAd() && _interstitial != null) {
       _interstitial!.show();
       _interstitial = null;
+      _lastInterstitialShownAt = DateTime.now();
       _loadInterstitial();
     }
   }
@@ -108,8 +135,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (profileStr != null) _profile = Map<String, bool>.from(jsonDecode(profileStr));
     final dietStr = prefs.getString('dietary_filters');
     if (dietStr != null) _dietary = Map<String, bool>.from(jsonDecode(dietStr));
-    setState(() => _loading = false);
-    _loadInterstitial();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  /// Reloads only settings-derived state (language, profile, dietary filters
+  /// and favorites/shopping which may have changed). Preserves the user's
+  /// current selection, search, sort, cuisine filter, and tab.
+  Future<void> _reloadSettingsOnly() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lang = prefs.getString('app_language') ?? 'en';
+    LocalizationHelper.currentLanguage = lang;
+
+    final profileStr = prefs.getString('health_profile');
+    if (profileStr != null) _profile = Map<String, bool>.from(jsonDecode(profileStr));
+    final dietStr = prefs.getString('dietary_filters');
+    if (dietStr != null) _dietary = Map<String, bool>.from(jsonDecode(dietStr));
+
+    _favMeals = await DatabaseHelper.getFavoriteMeals();
+    _shopping = await DatabaseHelper.getShoppingItems();
+
+    if (mounted) setState(() {});
   }
 
   void _filterIngredients(String q) {
@@ -117,10 +162,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _filtered = q.isEmpty
           ? List.from(_allIngredients)
           : _allIngredients.where((i) {
-              final name = LocalizationHelper.ingredientName(i).toLowerCase();
-              return name.contains(q.toLowerCase());
-            }).toList();
-      // Reset category filter when searching
+        final name = LocalizationHelper.ingredientName(i).toLowerCase();
+        return name.contains(q.toLowerCase());
+      }).toList();
       if (q.isNotEmpty) _categoryFilter = 'all';
     });
   }
@@ -134,7 +178,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return [];
   }
 
-  // FIX 2: Clear results when no ingredients selected
   void _clearResultsIfEmpty() {
     if (_selected.isEmpty) {
       setState(() {
@@ -158,15 +201,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       if (pct > 0) results.add({...meal, 'match_pct': pct, 'have': have, 'total': req.length});
     }
 
-    // Dietary filter
     if (_dietary.values.any((v) => v)) {
       results = results.where((m) {
         final tagsRaw = m['dietary_tags'];
         final tags = tagsRaw is List
             ? tagsRaw.map((e) => e.toString()).toList()
             : tagsRaw is String
-                ? tagsRaw.split(',').map((e) => e.trim()).toList()
-                : <String>[];
+            ? tagsRaw.split(',').map((e) => e.trim()).toList()
+            : <String>[];
         for (final f in _dietary.entries) {
           if (f.value && !tags.contains(f.key)) return false;
         }
@@ -227,8 +269,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     for (final m in missing) {
       final ing = _allIngredients.firstWhere(
-        (i) => i['id'].toString() == m.toString(),
-        orElse: () => {'name_en': m, 'name_ar': m, 'name_fr': m, 'name_es': m},
+            (i) => i['id'].toString() == m.toString(),
+        orElse: () => {'name_en': m, 'name_ar': m, 'name_fr': m},
       );
       await DatabaseHelper.addShoppingItem(LocalizationHelper.ingredientName(ing));
     }
@@ -255,17 +297,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   String _getIngredientNameById(String id) {
     final ing = _allIngredients.firstWhere(
-      (i) => i['id'].toString() == id,
+          (i) => i['id'].toString() == id,
       orElse: () => {'name_en': id, 'name_ar': id, 'name_fr': id},
     );
     return LocalizationHelper.ingredientName(ing);
   }
 
-  // ─── INGREDIENT TAB WITH CATEGORY FILTER ──────────────────────
   Widget _buildIngredientTab() {
     final scheme = Theme.of(context).colorScheme;
 
-    // Build grouped map
     final grouped = <String, List<Map<String, dynamic>>>{};
     for (final cat in _cats) grouped[cat] = [];
     for (final i in _filtered) {
@@ -274,13 +314,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       grouped[cat]!.add(i);
     }
 
-    // Determine which categories to show
     final catsToShow = _categoryFilter == 'all'
         ? _cats.where((c) => (grouped[c] ?? []).isNotEmpty).toList()
         : [_categoryFilter];
 
     return Column(children: [
-      // Search bar
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
         child: TextField(
@@ -291,12 +329,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             prefixIcon: const Icon(Icons.search),
             suffixIcon: _search.text.isNotEmpty
                 ? IconButton(
-                    icon: const Icon(Icons.clear, size: 18),
-                    onPressed: () {
-                      _search.clear();
-                      _filterIngredients('');
-                    },
-                  )
+              icon: const Icon(Icons.clear, size: 18),
+              onPressed: () {
+                _search.clear();
+                _filterIngredients('');
+              },
+            )
                 : null,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             filled: true,
@@ -306,7 +344,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
       ),
 
-      // FIX 1: Category filter chips
       SizedBox(
         height: 40,
         child: ListView(
@@ -325,7 +362,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       const SizedBox(height: 4),
 
-      // Selected count + clear
       if (_selected.isNotEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
@@ -340,7 +376,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             TextButton(
               onPressed: () {
                 setState(() => _selected.clear());
-                _clearResultsIfEmpty(); // FIX 2
+                _clearResultsIfEmpty();
               },
               style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
               child: Text(LocalizationHelper.t('clear_all'), style: const TextStyle(fontSize: 13)),
@@ -348,7 +384,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ]),
         ),
 
-      // Ingredient grid
       Expanded(
         child: ListView(
           children: catsToShow.map((cat) {
@@ -363,7 +398,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   Text(LocalizationHelper.t(cat),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                   const SizedBox(width: 8),
-                  // Selected count in this category
                   Builder(builder: (_) {
                     final selCount = items.where((i) => _selected.contains(i['id'].toString())).length;
                     if (selCount == 0) return const SizedBox.shrink();
@@ -402,7 +436,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           _selected.add(id);
                         }
                       });
-                      // FIX 2: clear results if nothing selected
                       _clearResultsIfEmpty();
                     },
                     child: AnimatedContainer(
@@ -439,7 +472,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
       ),
 
-      // Find Meals button
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
         child: SizedBox(
@@ -460,7 +492,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     ]);
   }
 
-  // Category chip widget
   Widget _catChip(String value, String emoji, String label) {
     final scheme = Theme.of(context).colorScheme;
     final selected = _categoryFilter == value;
@@ -533,7 +564,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         : -1;
 
     return Column(children: [
-      // Sort + Cuisine filter bar
       SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
@@ -568,7 +598,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ]),
       ),
 
-      // Results count
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         child: Row(children: [
@@ -619,12 +648,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             final warnings = warningsRaw is Map
                 ? warningsRaw
                 : warningsRaw is String && warningsRaw.isNotEmpty
-                    ? (jsonDecode(warningsRaw) as Map? ?? {})
-                    : <String, dynamic>{};
+                ? (jsonDecode(warningsRaw) as Map? ?? {})
+                : <String, dynamic>{};
             final hasWarn =
                 (_profile['pregnant'] == true && warnings['pregnant'] == true) ||
-                (_profile['diabetic'] == true && warnings['diabetic'] == true) ||
-                (_profile['heart'] == true && warnings['heart'] == true);
+                    (_profile['diabetic'] == true && warnings['diabetic'] == true) ||
+                    (_profile['heart'] == true && warnings['heart'] == true);
 
             return Card(
               margin: const EdgeInsets.only(bottom: 10),
@@ -674,10 +703,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   const SizedBox(height: 8),
                   Row(children: [
                     Expanded(child: OutlinedButton(
-                      onPressed: () {
-                        _showMealDetail(meal);
-                        _showInterstitialIfNeeded();
-                      },
+                      onPressed: () => _showMealDetail(meal),
                       style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 8)),
                       child: Text(LocalizationHelper.t('view_detail'), style: const TextStyle(fontSize: 13)),
                     )),
@@ -787,15 +813,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ...req.map((r) {
                   final have = _selected.contains(r);
                   final ing = _allIngredients.firstWhere(
-                    (i) => i['id'].toString() == r.toString(),
+                        (i) => i['id'].toString() == r.toString(),
                     orElse: () => {'id': r, 'name_en': r, 'name_ar': r, 'name_fr': r, 'emoji': '🍽️'},
                   );
                   final altsRaw = ing['alternatives'];
                   final altIds = altsRaw is List
                       ? altsRaw.map((e) => e.toString()).toList()
                       : altsRaw is String && altsRaw.isNotEmpty
-                          ? altsRaw.split(',').map((e) => e.trim()).toList()
-                          : <String>[];
+                      ? altsRaw.split(',').map((e) => e.trim()).toList()
+                      : <String>[];
                   final altNames = altIds.map((id) => _getIngredientNameById(id)).toList();
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4),
@@ -888,7 +914,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.only(right: 16),
                 decoration: BoxDecoration(
-                  color: Colors.red, borderRadius: BorderRadius.circular(12)),
+                    color: Colors.red, borderRadius: BorderRadius.circular(12)),
                 child: const Icon(Icons.delete, color: Colors.white),
               ),
               onDismissed: (_) async {
@@ -983,6 +1009,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _banner?.dispose();
+    _interstitial?.dispose();
     _tabController.dispose();
     _search.dispose();
     super.dispose();
@@ -1001,10 +1028,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () async {
-              _showInterstitialIfNeeded();
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              await _loadAll();
-              setState(() {});
+              await _reloadSettingsOnly();
             },
           ),
         ],
@@ -1030,7 +1055,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             _buildFavoritesTab(),
           ]),
         ),
-        if (_banner != null)
+        if (_banner != null && _bannerReady)
           SafeArea(
             top: false,
             child: SizedBox(height: 50, child: AdWidget(ad: _banner!)),
