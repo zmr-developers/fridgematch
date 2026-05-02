@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/foundation.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/home_screen.dart';
 import 'helpers/localization_helper.dart';
@@ -9,6 +10,10 @@ import 'db/database_helper.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Enable edge-to-edge mode (required for Android 15+ targeting SDK 35).
+  // Flutter's Scaffold and SafeArea automatically pad around system bars.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   // Initialize AdMob — never let this crash app launch.
   try {
